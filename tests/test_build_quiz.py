@@ -29,7 +29,7 @@ def find(node, key):
 
 @pytest.fixture
 def built():
-    return build_quiz(find_quiz_files(FIXTURE), points=10, captured=None)
+    return build_quiz(find_quiz_files(FIXTURE), points=10)
 
 
 def test_io_cases_split(tmp_path):
@@ -82,19 +82,19 @@ def test_io_cases_from_solution(built):
     assert [m["name"] for m in matches] == ["Case 1", "Case 2"]
 
 
-def test_pytest_fallback_when_no_capture():
-    step, kind = pytest_step(FIXTURE / "test_solution.py", None)
+def test_pytest_block_is_default():
+    step, kind = pytest_step(FIXTURE / "test_solution.py")
+    assert kind == "pytest-block"
+    block = step["pytest"]
+    assert block["script"] == (FIXTURE / "test_solution.py").read_text()
+    assert block["version"] == "9.0.2"
+    assert set(block) == {"id", "name", "script", "version", "description"}
+
+
+def test_pytest_fallback_custom_test():
+    step, kind = pytest_step(FIXTURE / "test_solution.py", use_block=False)
     assert kind == "custom-test fallback"
     assert "cg unit-tests junitxml" in json.dumps(step)
-
-
-def test_pytest_block_when_captured(tmp_path):
-    cap = tmp_path / "pytest_block.json"
-    cap.write_text(json.dumps({"pytest": {"id": "x", "testFile": {"name": "__TEST_FILE__", "content": "__TEST_FILE__"}}}))
-    step, kind = pytest_step(FIXTURE / "test_solution.py", cap)
-    assert kind == "pytest-block"
-    assert "__TEST_FILE__" not in json.dumps(step)
-    assert step["pytest"]["id"] != "x"
 
 
 def test_rows_and_validation(built):
@@ -104,12 +104,35 @@ def test_rows_and_validation(built):
         "Coding question: unit tests",
     ]
     validate_config(built.config, built.rows)
-    assert any("custom-test fallback" in n for n in built.notes)
+    assert any("pytest-block" in n for n in built.notes)
+    assert not find(built.config, "testUploadFiles")
 
 
-def test_captured_without_placeholder_rejected(tmp_path):
-    cap = tmp_path / "pytest_block.json"
-    cap.write_text(json.dumps({"pytest": {"id": "x", "testFile": {"name": "t.py", "content": "def test(): pass"}}}))
-    with pytest.raises(ValueError) as e:
-        pytest_step(FIXTURE / "test_solution.py", cap)
-    assert "placeholder" in str(e.value)
+def _kind(step):
+    return next(iter(step))
+
+
+def test_everything_inside_the_quiz(built):
+    # test-timeout-each > test-hide > quiz
+    top = built.config["test"]["steps"][0]["testTimeoutEach"]["children"]
+    assert [_kind(s) for s in top] == ["testHide"]
+    quiz_steps = top[0]["testHide"]["children"]
+    assert [_kind(s) for s in quiz_steps] == ["quiz"]
+    children = quiz_steps[0]["quiz"]["children"]
+    # quiz > connect-rubric(Multiple choice) > mcqs ; quiz > coding-question
+    assert [_kind(s) for s in children] == ["connectRubric", "codingQuestion"]
+    assert all(_kind(s) == "mcq" for s in children[0]["connectRubric"]["children"])
+    # coding-question > connect-rubric(output) > io-test ; connect-rubric(unit tests) > pytest
+    cq_children = children[1]["codingQuestion"]["children"]
+    assert [_kind(s) for s in cq_children] == ["connectRubric", "connectRubric"]
+    assert [_kind(s) for s in cq_children[0]["connectRubric"]["children"]] == ["ioTest"]
+    assert [_kind(s) for s in cq_children[1]["connectRubric"]["children"]] == ["pytest"]
+
+
+def test_quiz_description_picked_up(tmp_path):
+    import shutil
+    folder = tmp_path / "q"
+    shutil.copytree(FIXTURE, folder)
+    (folder / "description.md").write_text("Quiz intro")
+    built = build_quiz(find_quiz_files(folder), points=10)
+    assert built.description == ("description.md", b"Quiz intro")

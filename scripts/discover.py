@@ -16,6 +16,7 @@ class JupyterFiles:
     template: Path
     solution: Path
     tests: list[Path]
+    description: Path | None = None
 
 
 @dataclass
@@ -25,12 +26,19 @@ class QuizFiles:
     starter: Path | None
     io_cases: Path
     test_file: Path
+    description: Path | None = None
 
 
 def _raise(folder: Path, problems: list[str]) -> None:
     if problems:
         lines = "\n".join(f"  - {p}" for p in problems)
         raise MissingFilesError(f"Problems in {folder}:\n{lines}")
+
+
+def _description(folder: Path) -> Path | None:
+    """Optional assignment description shown to students (Markdown)."""
+    path = folder / "description.md"
+    return path if path.is_file() else None
 
 
 def _check_folder(folder: Path) -> None:
@@ -62,7 +70,7 @@ def find_jupyter_files(folder: Path) -> JupyterFiles:
         problems.append("no test files found (tests/test_*.py)")
 
     _raise(folder, problems)
-    return JupyterFiles(template=template, solution=solution, tests=tests)
+    return JupyterFiles(template=template, solution=solution, tests=tests, description=_description(folder))
 
 
 def find_quiz_files(folder: Path) -> QuizFiles:
@@ -78,4 +86,5 @@ def find_quiz_files(folder: Path) -> QuizFiles:
         starter=starter if starter.is_file() else None,
         io_cases=folder / "io_cases.txt",
         test_file=folder / "test_solution.py",
+        description=_description(folder),
     )

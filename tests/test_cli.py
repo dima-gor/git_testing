@@ -21,7 +21,7 @@ class Recorder:
 @pytest.fixture
 def rec(monkeypatch):
     r = Recorder()
-    client = type("C", (), {"http": None})()
+    client = type("C", (), {"http": None, "__enter__": lambda self: self, "__exit__": lambda self, *e: None})()
     monkeypatch.setattr(cg_api, "login", r.fn("login", client))
     monkeypatch.setattr(cg_api, "create_assignment", r.fn("create_assignment", 77))
     monkeypatch.setattr(cg_api, "course_of", r.fn("course_of", 5))
@@ -31,6 +31,7 @@ def rec(monkeypatch):
     monkeypatch.setattr(cg_api, "upload_test_submission", r.fn("upload_test_submission"))
     monkeypatch.setattr(cg_api, "create_snapshot", r.fn("create_snapshot", "snap1"))
     monkeypatch.setattr(cg_api, "publish_snapshot", r.fn("publish_snapshot"))
+    monkeypatch.setattr(cg_api, "set_description", r.fn("set_description"))
     monkeypatch.setattr(push_assignment, "host_of", lambda client: "https://example.test")
     return r
 
@@ -104,3 +105,59 @@ def test_library_error_exits_3(rec, monkeypatch, capsys):
 def test_test_submission_uploaded_before_editor_only(rec):
     push_assignment.main(["--source", str(FIXTURES / "jupyter_min"), "--type", "jupyter", "--course", "5"])
     assert rec.calls.index("upload_test_submission") < rec.calls.index("set_editor_only")
+
+
+def test_client_session_opened_once_for_whole_run(rec, monkeypatch):
+    """codegrade's client must be entered once; raw client.http calls between
+    library calls otherwise re-open httpx ('Cannot open a client instance more than once')."""
+    events = []
+
+    class Client:
+        http = None
+
+        def __enter__(self):
+            events.append("enter")
+            return self
+
+        def __exit__(self, *exc):
+            events.append("exit")
+
+    monkeypatch.setattr(cg_api, "login", lambda: Client())
+    code = push_assignment.main(["--source", str(FIXTURES / "quiz_min"), "--type", "quiz", "--course", "1"])
+    assert code == 0
+    assert events == ["enter", "exit"]
+
+
+
+def test_recreate_flag_passed(rec, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(cg_api, "push_autotest", lambda c, a, cfg, recreate=False: seen.setdefault("recreate", recreate))
+    push_assignment.main(["--source", str(FIXTURES / "quiz_min"), "--type", "quiz", "--assignment", "9", "--yes", "--recreate"])
+    assert seen["recreate"] is True
+
+
+def test_description_uploaded_when_present(rec, tmp_path):
+    import shutil
+    folder = tmp_path / "q"
+    shutil.copytree(FIXTURES / "quiz_min", folder)
+    (folder / "description.md").write_text("intro")
+    assert push_assignment.main(["--source", str(folder), "--type", "quiz", "--course", "1"]) == 0
+    assert "set_description" in rec.calls
+
+
+def test_no_description_not_uploaded(rec):
+    assert push_assignment.main(["--source", str(FIXTURES / "quiz_min"), "--type", "quiz", "--course", "1"]) == 0
+    assert "set_description" not in rec.calls
+
+
+def test_points_must_be_positive(rec):
+    with pytest.raises(SystemExit):
+        push_assignment.main(["--example", "quiz", "--dry-run", "--points", "0"])
+
+
+def test_non_numeric_course_prompt(rec, monkeypatch, capsys):
+    monkeypatch.setattr("builtins.input", lambda prompt="": "abc")
+    code = push_assignment.main(["--source", str(FIXTURES / "quiz_min"), "--type", "quiz"])
+    assert code == 2
+    assert "course id" in capsys.readouterr().err.lower()
+    assert "login" not in rec.calls

@@ -40,7 +40,8 @@ def test_rows_from_files(built):
 
 def test_one_cell_per_test(built):
     cells = steps_of(built, "runInNotebook")
-    assert [c["name"] for c in cells] == ["test_double", "test_total"]
+    # docstring first line when present, otherwise the function name made readable
+    assert [c["name"] for c in cells] == ["double(3) returns 6", "Total"]
     assert all(c["insertMethod"] == "append-to-notebook" for c in cells)
 
 
@@ -114,3 +115,16 @@ def test_class_tests_rejected(tmp_path):
     with pytest.raises(ConversionError) as e:
         cells_from_test_file(f)
     assert "TestX" in str(e.value)
+
+
+def test_description_picked_up(tmp_path):
+    import shutil
+    folder = tmp_path / "nb"
+    shutil.copytree(FIXTURE, folder)
+    (folder / "description.md").write_text("# Hello\n")
+    built = build_jupyter(find_jupyter_files(folder), points=10)
+    assert built.description == ("description.md", b"# Hello\n")
+
+
+def test_no_description_is_fine(built):
+    assert built.description is None

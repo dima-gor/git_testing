@@ -38,6 +38,15 @@ def row_header(test_file: Path) -> str:
     return stem.replace("_", " ").strip().title() or test_file.stem
 
 
+def check_name(func: ast.FunctionDef) -> str:
+    """Name shown in CodeGrade: first docstring line, else the readable function name."""
+    doc = ast.get_docstring(func)
+    if doc and doc.strip():
+        return doc.strip().splitlines()[0][:100]
+    name = func.name[len("test_"):] if func.name.startswith("test_") else func.name
+    return name.replace("_", " ").strip().capitalize() or func.name
+
+
 def cells_from_test_file(path: Path) -> list[tuple[str, str]]:
     source = path.read_text(encoding="utf-8")
     try:
@@ -75,7 +84,7 @@ def cells_from_test_file(path: Path) -> list[tuple[str, str]]:
                 f"{body}\n{node.name}()\n"
                 f'print("\\u2705 {node.name} passed.")\n'
             )
-            cells.append((node.name, cell))
+            cells.append((check_name(node), cell))
     if not cells:
         raise ConversionError(f"{path.name} has no test_ functions")
     return cells
@@ -86,7 +95,9 @@ def build_jupyter(files: JupyterFiles, points: int) -> Built:
     rubric_blocks: list[dict] = []
     for test_file in files.tests:
         header = row_header(test_file)
-        rows.append(RubricRow(header=header, description=f"Automatic checks from {test_file.name}.", max_points=points))
+        doc = ast.get_docstring(ast.parse(test_file.read_text(encoding="utf-8"))) or ""
+        summary = doc.strip().splitlines()[0] if doc.strip() else f"Automatic checks from {test_file.name}."
+        rows.append(RubricRow(header=header, description=summary, max_points=points))
         checks = [
             {
                 "runInNotebook": {
@@ -122,4 +133,5 @@ def build_jupyter(files: JupyterFiles, points: int) -> Built:
         submission_name=files.template.name,
         test_submission=[(files.template.name, files.solution.read_bytes())],
         editor_template=[],
+        description=(files.description.name, files.description.read_bytes()) if files.description else None,
     )

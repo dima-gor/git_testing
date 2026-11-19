@@ -21,8 +21,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, help="Write to this file instead of stdout.")
     args = parser.parse_args(argv)
 
-    client = login()
-    resp = client.http.get(f"/api/v2/autotest/{args.assignment}")
+    with login() as client:
+        resp = client.http.get(f"/api/v2/autotest/{args.assignment}")
     if resp.status_code != 200:
         print(f"Could not get the AutoTest config ({resp.status_code}): {resp.text[:500]}", file=sys.stderr)
         return 1

@@ -50,7 +50,7 @@ def test_jupyter_template_fails_all_checks():
 
 
 def test_quiz_example_builds_and_validates():
-    built = build_quiz(find_quiz_files(QUIZ), points=10, captured=None)
+    built = build_quiz(find_quiz_files(QUIZ), points=10)
     validate_config(built.config, built.rows)
 
 

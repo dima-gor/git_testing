@@ -12,6 +12,7 @@ Login: set CG_HOST, CG_TENANT, CG_USERNAME and CG_PASSWORD, or answer the prompt
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -31,6 +32,13 @@ DEFAULT_HOST = "https://app.codegra.de"
 USER_ERRORS = (MissingFilesError, QuizFormatError, ConversionError, SolutionError, ConfigError)
 
 
+def positive_int(text: str) -> int:
+    value = int(text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError("must be a positive whole number")
+    return value
+
+
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     src = p.add_mutually_exclusive_group()
@@ -41,9 +49,10 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     target.add_argument("--course", type=int, help="Create a new assignment in this course.")
     target.add_argument("--assignment", type=int, help="Update this existing assignment.")
     p.add_argument("--name", help="Assignment name (default: folder name).")
-    p.add_argument("--points", type=int, default=10, help="Points per rubric row (default 10).")
+    p.add_argument("--points", type=positive_int, default=10, help="Points per rubric row (default 10).")
     p.add_argument("--publish", action="store_true", help="Publish the new snapshot (makes AutoTest live for students).")
     p.add_argument("--yes", action="store_true", help="Don't ask before replacing an existing AutoTest config.")
+    p.add_argument("--recreate", action="store_true", help="Delete the existing AutoTest config first and create it fresh.")
     p.add_argument("--dry-run", action="store_true", help="Only build the JSON into build/, don't contact CodeGrade.")
     p.add_argument("--wait", type=int, default=600, help="Seconds to keep trying to publish (default 600).")
     args = p.parse_args(argv)
@@ -114,7 +123,11 @@ def main(argv: list[str] | None = None) -> int:
 
     course_id = args.course
     if not args.course and not args.assignment:
-        course_id = int(input("Course id to create the assignment in: ").strip())
+        answer = input("Course id to create the assignment in: ").strip()
+        if not answer.isdigit():
+            print(f"Error: course id must be a number (the number in the course URL), got {answer!r}.", file=sys.stderr)
+            return 2
+        course_id = int(answer)
 
     if args.assignment and not args.yes:
         answer = input(
@@ -125,8 +138,12 @@ def main(argv: list[str] | None = None) -> int:
             print("Stopped, nothing changed.")
             return 1
 
+    session = contextlib.ExitStack()
     try:
         client = cg_api.login()
+        # Keep one HTTP session open for the whole run: mixing library calls
+        # and raw client.http calls otherwise re-opens the httpx client.
+        session.enter_context(client)
         if args.assignment:
             assignment_id = args.assignment
             course_id = cg_api.course_of(client, assignment_id)
@@ -134,6 +151,9 @@ def main(argv: list[str] | None = None) -> int:
             assignment_id = cg_api.create_assignment(client, course_id, name)
             print(f"Created assignment {assignment_id} ({name}) in course {course_id}.")
 
+        if built.description:
+            cg_api.set_description(client, assignment_id, built.description)
+            print(f"Description uploaded ({built.description[0]}).")
         # Upload the test submission before switching file uploads off.
         cg_api.upload_test_submission(client, assignment_id, built.test_submission)
         if built.test_submission:
@@ -144,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
         ids = cg_api.ensure_rubric(client, assignment_id, built.rows, warnings=rubric_warnings)
         for warning in rubric_warnings:
             print(f"Warning: {warning}")
-        cg_api.push_autotest(client, assignment_id, fill_rubric_ids(built.config, ids))
+        cg_api.push_autotest(client, assignment_id, fill_rubric_ids(built.config, ids), recreate=args.recreate)
         print("AutoTest configuration uploaded.")
         snapshot_id = cg_api.create_snapshot(client, assignment_id)
         print(f"Snapshot {snapshot_id} is building.")
@@ -157,10 +177,14 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as e:  # library, network and API errors: no traceback for users
         print(f"Error: {type(e).__name__}: {e}", file=sys.stderr)
         return 3
+    finally:
+        session.close()
 
     url = cg_api.assignment_url(host_of(client), course_id, assignment_id)
     print(f"\nDone: {url}")
     print("Next: open the AutoTest page, check the snapshot result and the test submission score.")
+    if not built.test_submission:
+        print("Quiz: click Build Snapshot -> 'Automatically generate a test submission' to score your own answers.")
     if not args.publish:
         print("The snapshot is not published yet; publish it from the AutoTest page when it looks right.")
     return 0

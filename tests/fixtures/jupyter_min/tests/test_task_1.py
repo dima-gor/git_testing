@@ -2,6 +2,7 @@
 
 
 def test_double():
+    """double(3) returns 6"""
     assert double(3) == 6, "[Task 1] double(3) should return 6."
 
 

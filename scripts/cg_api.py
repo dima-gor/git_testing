@@ -5,6 +5,7 @@ through the library's authenticated HTTP client (`client.http`).
 """
 from __future__ import annotations
 
+import io
 import os
 import time
 from typing import Callable
@@ -34,6 +35,13 @@ def login() -> codegrade.AuthenticatedClient:
     return codegrade.login_from_cli()
 
 
+def _files(files: list[tuple[str, bytes]]) -> list:
+    """(name, bytes) pairs -> codegrade File objects for multipart uploads."""
+    from codegrade.models.types import File
+
+    return [File(payload=io.BytesIO(content), file_name=name) for name, content in files]
+
+
 def _check(resp, what: str):
     if resp.status_code not in (200, 201, 204):
         raise ApiError(f"{what} failed ({resp.status_code}): {resp.text[:500]}")
@@ -55,15 +63,23 @@ def course_of(client, assignment_id: int) -> int | None:
 
 def set_editor_only(client, assignment_id: int, template: list[tuple[str, bytes]]) -> list[str]:
     """Students submit through the editor only. Returns warnings."""
-    data: dict = {"json": {"files_upload_enabled": False, "editor_upload_enabled": True}}
+    # editor_configuration replaces the deprecated editor_upload_enabled flag.
+    data: dict = {"json": {"files_upload_enabled": False, "editor_configuration": {"tag": "enabled"}}}
     if template:
-        data["template"] = list(template)
+        data["template"] = _files(template)
     client.assignment.patch_submit_types(data, assignment_id=assignment_id)
     warnings = []
-    resp = client.http.patch(f"/api/v1/assignments/{assignment_id}", json={"simple_submission_mode": True})
-    if resp.status_code not in (200, 204):
-        warnings.append(f"Could not enable simplified submission mode ({resp.status_code}); continuing.")
+    try:
+        # Plain string, not the SDK enum (see docs: enum members serialize wrongly).
+        client.assignment.patch({"submission_mode": "simple"}, assignment_id=assignment_id)
+    except Exception as e:  # not fatal: students then land on the assignment page first
+        warnings.append(f"Could not enable simplified submission mode ({e}); continuing.")
     return warnings
+
+
+def set_description(client, assignment_id: int, description: tuple[str, bytes]) -> None:
+    """Upload the assignment description (description.md) shown to students."""
+    client.assignment.put_description({"file": _files([description])}, assignment_id=assignment_id)
 
 
 def _row_to_input(row) -> dict:
@@ -117,29 +133,53 @@ def ensure_rubric(
     return {row.header: by_header[row.header] for row in rows}
 
 
-def push_autotest(client, assignment_id: int, config: dict) -> None:
-    url = f"/api/v2/autotest/{assignment_id}"
-    unpublished = {"unpublished": {}}
-    _check(client.http.put(url, json={}), "Creating the AutoTest configuration")
+def push_autotest(client, assignment_id: int, config: dict, recreate: bool = False) -> None:
+    """Upload the config: create it if needed, then setup, then tests.
 
+    With recreate=True the existing AutoTest config is deleted first.
+    The published snapshot is never touched here; create_snapshot and
+    publish_snapshot handle that afterwards.
+    """
+    url = f"/api/v2/autotest/{assignment_id}"
+    if recreate:
+        resp = client.http.delete(url)
+        if resp.status_code not in (200, 204, 404):
+            _check(resp, "Deleting the old AutoTest configuration")
+        exists = False
+    else:
+        exists = client.http.get(url).status_code == 200
+    if not exists:
+        _check(client.http.put(url, json={}), "Creating the AutoTest configuration")
+
+    hint = "" if recreate else " If this keeps happening on an existing assignment, run again with --recreate."
     setup = dict(config["setup"])
-    resp = client.http.patch(url, json={"updatedSetup": setup, "publishedSnapshot": unpublished})
+    resp = client.http.patch(url, json={"updatedSetup": setup})
     if resp.status_code == 400 and "metadata" in setup:
         steps_only = {k: v for k, v in setup.items() if k != "metadata"}
-        resp = client.http.patch(url, json={"updatedSetup": steps_only, "publishedSnapshot": unpublished})
+        resp = client.http.patch(url, json={"updatedSetup": steps_only})
+    if resp.status_code >= 500:
+        raise ApiError(f"Uploading the AutoTest setup failed ({resp.status_code}): {resp.text[:300]}.{hint}")
     _check(resp, "Uploading the AutoTest setup")
 
-    _check(
-        client.http.patch(url, json={"updatedTest": config["test"], "publishedSnapshot": unpublished}),
-        "Uploading the AutoTest tests",
-    )
+    resp = client.http.patch(url, json={"updatedTest": config["test"]})
+    if resp.status_code >= 500:
+        raise ApiError(f"Uploading the AutoTest tests failed ({resp.status_code}): {resp.text[:300]}.{hint}")
+    _check(resp, "Uploading the AutoTest tests")
 
 
 def upload_test_submission(client, assignment_id: int, files: list[tuple[str, bytes]]) -> None:
     if not files:
         return
+    # ignored_files MUST be passed as a plain string. The SDK's default is the
+    # IgnoreHandling.keep enum member, and on Python 3.11+ the HTTP layer
+    # stringifies it with str(), which gives "IgnoreHandling.keep" instead of
+    # "keep" -> the API rejects it with INVALID_REQUEST_BODY. Same rule for
+    # any other enum-typed SDK parameter: always pass the .value / the string.
     client.assignment.upload_submission(
-        {"file": list(files)}, assignment_id=assignment_id, is_test_submission=True
+        {"file": _files(files)},
+        assignment_id=assignment_id,
+        is_test_submission=True,
+        ignored_files="keep",
     )
 
 

@@ -6,12 +6,15 @@ from solution import total
 
 
 def test_total_of_numbers():
+    """total([4, 5, 6]) returns 15"""
     assert total([4, 5, 6]) == 15
 
 
 def test_total_of_empty_list():
+    """total([]) returns 0"""
     assert total([]) == 0
 
 
 def test_total_with_negative_numbers():
+    """total([-3, 10, 0, -7]) returns 0"""
     assert total([-3, 10, 0, -7]) == 0

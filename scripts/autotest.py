@@ -34,6 +34,7 @@ class Built:
     test_submission: list[tuple[str, bytes]] = field(default_factory=list)
     editor_template: list[tuple[str, bytes]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    description: tuple[str, bytes] | None = None
 
 
 def new_id() -> str:
