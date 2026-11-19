@@ -1,0 +1,12 @@
+[
+  {
+    "header": "Output",
+    "description": "The program prints the right letter grade for several scores.",
+    "max_points": 10
+  },
+  {
+    "header": "Code structure",
+    "description": "Defines a function letter_grade and does not use eval.",
+    "max_points": 10
+  }
+]

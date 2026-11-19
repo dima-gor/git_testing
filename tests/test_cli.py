@@ -161,3 +161,16 @@ def test_non_numeric_course_prompt(rec, monkeypatch, capsys):
     assert code == 2
     assert "course id" in capsys.readouterr().err.lower()
     assert "login" not in rec.calls
+
+
+def test_json_example_dry_run(rec, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert push_assignment.main(["--example", "json", "--dry-run"]) == 0
+    assert (tmp_path / "build" / "json-example.autotest.json").is_file()
+
+
+def test_json_type_pushes_template_and_test_submission(rec):
+    from pathlib import Path
+    folder = Path(push_assignment.__file__).resolve().parent.parent / "json-example"
+    assert push_assignment.main(["--source", str(folder), "--type", "json", "--course", "1"]) == 0
+    assert "upload_test_submission" in rec.calls and "set_editor_only" in rec.calls

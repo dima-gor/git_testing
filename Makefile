@@ -3,9 +3,10 @@
 #   make install
 #   make quiz ARGS="--course 123 --publish"
 #   make jupyter ARGS="--dry-run"
+#   make json ARGS="--course 123"
 #   make docker-run ARGS="--example quiz --course 123"
 
-.PHONY: help install test jupyter quiz capture docker-build docker-run clean
+.PHONY: help install test jupyter quiz json capture docker-build docker-run clean
 
 VENV   := .venv
 PY     := $(VENV)/bin/python
@@ -30,6 +31,9 @@ jupyter: $(PY)  ## Push the Jupyter example: make jupyter ARGS="--course 123"
 
 quiz: $(PY)  ## Push the quiz example: make quiz ARGS="--course 123"
 	$(PY) -m scripts.push_assignment --example quiz $(ARGS)
+
+json: $(PY)  ## Push the JSON example: make json ARGS="--course 123"
+	$(PY) -m scripts.push_assignment --example json $(ARGS)
 
 capture: $(PY)  ## Print an assignment config: make capture ARGS="--assignment 123"
 	$(PY) -m scripts.capture_config $(ARGS)

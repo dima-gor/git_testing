@@ -1,0 +1,44 @@
+{
+  "setup": {
+    "steps": [
+      { "installPython": { "version": "3.12" } }
+    ]
+  },
+  "test": {
+    "steps": [
+      { "testTimeoutEach": { "timeout": 60000, "children": [
+
+        { "connectRubric": { "rubricRowId": "__RUBRIC_ROW_ID:Output__", "children": [
+          { "ioTest": { "name": "Output", "script": "python3 grade.py", "children": [
+            { "simpleMatch": { "name": "Score 95 is an A", "inputText": "95\n", "outputText": "A\n",
+                "caseSensitivity": "insensitive", "whitespacesPolicy": "ignore",
+                "description": { "behavior": "uncollapse-on-fail", "value": "Check the grade for a score of 95." } } },
+            { "simpleMatch": { "name": "Score 85 is a B", "inputText": "85\n", "outputText": "B\n",
+                "caseSensitivity": "insensitive", "whitespacesPolicy": "ignore",
+                "description": { "behavior": "uncollapse-on-fail", "value": "Check the grade for a score of 85." } } },
+            { "simpleMatch": { "name": "Score 70 is a C (boundary)", "inputText": "70\n", "outputText": "C\n",
+                "caseSensitivity": "insensitive", "whitespacesPolicy": "ignore",
+                "description": { "behavior": "uncollapse-on-fail", "value": "A score exactly on the boundary belongs to the higher grade." } } },
+            { "simpleMatch": { "name": "Score 42 is an F", "inputText": "42\n", "outputText": "F\n",
+                "caseSensitivity": "insensitive", "whitespacesPolicy": "ignore",
+                "description": { "behavior": "uncollapse-on-fail", "value": "Check the grade for a low score." } } }
+          ] } }
+        ] } },
+
+        { "connectRubric": { "rubricRowId": "__RUBRIC_ROW_ID:Code structure__", "children": [
+          { "testHide": { "hideType": "config", "preposition": "always", "when": "deadline", "children": [
+            { "codeStructureTest": { "name": "Structure", "file": "grade.py", "version": "1.155.0", "children": [
+              { "positiveMatch": { "name": "letter_grade(score) returns a letter",
+                  "rules": "rules:\n  - id: letter-grade-returns-letter\n    languages: [python]\n    severity: INFO\n    message: letter_grade returns a string\n    patterns:\n      - pattern-inside: |\n          def letter_grade($X):\n              ...\n      - pattern: return \"...\"\n",
+                  "description": { "behavior": "uncollapse-on-fail", "value": "Define a function letter_grade(score) that returns the letter as a string." } } },
+              { "negativeMatch": { "name": "Does not use eval",
+                  "rules": "rules:\n  - id: no-eval\n    languages: [python]\n    severity: ERROR\n    message: eval is not allowed\n    pattern: eval(...)\n",
+                  "description": { "behavior": "uncollapse-on-fail", "value": "Don't use eval; convert the input with int()." } } }
+            ] } }
+          ] } }
+        ] } }
+
+      ] } }
+    ]
+  }
+}

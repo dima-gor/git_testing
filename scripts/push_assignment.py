@@ -21,15 +21,16 @@ from pathlib import Path
 
 from scripts import cg_api
 from scripts.autotest import Built, ConfigError, fill_rubric_ids, validate_config
+from scripts.build_json import JsonFormatError, build_json
 from scripts.build_jupyter import ConversionError, build_jupyter
 from scripts.build_quiz import SolutionError, build_quiz
-from scripts.discover import MissingFilesError, find_jupyter_files, find_quiz_files
+from scripts.discover import MissingFilesError, find_json_files, find_jupyter_files, find_quiz_files
 from scripts.quiz_md import QuizFormatError
 
 REPO = Path(__file__).resolve().parent.parent
-EXAMPLES = {"jupyter": REPO / "jupyter-example", "quiz": REPO / "quiz-example"}
+EXAMPLES = {"jupyter": REPO / "jupyter-example", "quiz": REPO / "quiz-example", "json": REPO / "json-example"}
 DEFAULT_HOST = "https://app.codegra.de"
-USER_ERRORS = (MissingFilesError, QuizFormatError, ConversionError, SolutionError, ConfigError)
+USER_ERRORS = (MissingFilesError, QuizFormatError, ConversionError, SolutionError, ConfigError, JsonFormatError)
 
 
 def positive_int(text: str) -> int:
@@ -44,12 +45,12 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     src = p.add_mutually_exclusive_group()
     src.add_argument("--example", choices=sorted(EXAMPLES), help="Use one of the example folders.")
     src.add_argument("--source", type=Path, help="Use your own folder (needs --type).")
-    p.add_argument("--type", choices=["jupyter", "quiz"], help="Assignment type of --source.")
+    p.add_argument("--type", choices=["jupyter", "quiz", "json"], help="Assignment type of --source.")
     target = p.add_mutually_exclusive_group()
     target.add_argument("--course", type=int, help="Create a new assignment in this course.")
     target.add_argument("--assignment", type=int, help="Update this existing assignment.")
     p.add_argument("--name", help="Assignment name (default: folder name).")
-    p.add_argument("--points", type=positive_int, default=10, help="Points per rubric row (default 10).")
+    p.add_argument("--points", type=positive_int, default=None, help="Points per rubric row (default 10; json: from rubric.json).")
     p.add_argument("--publish", action="store_true", help="Publish the new snapshot (makes AutoTest live for students).")
     p.add_argument("--yes", action="store_true", help="Don't ask before replacing an existing AutoTest config.")
     p.add_argument("--recreate", action="store_true", help="Delete the existing AutoTest config first and create it fresh.")
@@ -57,7 +58,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--wait", type=int, default=600, help="Seconds to keep trying to publish (default 600).")
     args = p.parse_args(argv)
     if args.source and not args.type:
-        p.error("--source needs --type jupyter or --type quiz")
+        p.error("--source needs --type jupyter, quiz or json")
     return args
 
 
@@ -66,18 +67,20 @@ def choose_folder(args) -> tuple[str, Path]:
         return args.type, args.source
     if args.example:
         return args.example, EXAMPLES[args.example]
-    print("Which example do you want to push?\n  1) Jupyter notebook\n  2) Quiz")
-    choice = input("Choose 1 or 2: ").strip()
-    kind = {"1": "jupyter", "2": "quiz"}.get(choice)
+    print("Which example do you want to push?\n  1) Jupyter notebook\n  2) Quiz\n  3) Hand-written AutoTest JSON")
+    choice = input("Choose 1, 2 or 3: ").strip()
+    kind = {"1": "jupyter", "2": "quiz", "3": "json"}.get(choice)
     if not kind:
-        raise SystemExit("Please choose 1 or 2.")
+        raise SystemExit("Please choose 1, 2 or 3.")
     return kind, EXAMPLES[kind]
 
 
-def build(kind: str, folder: Path, points: int) -> Built:
+def build(kind: str, folder: Path, points: int | None) -> Built:
+    if kind == "json":
+        return build_json(find_json_files(folder), points)
     if kind == "jupyter":
-        return build_jupyter(find_jupyter_files(folder), points)
-    return build_quiz(find_quiz_files(folder), points)
+        return build_jupyter(find_jupyter_files(folder), points or 10)
+    return build_quiz(find_quiz_files(folder), points or 10)
 
 
 def write_build(built: Built, name: str) -> tuple[Path, Path]:

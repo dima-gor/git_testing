@@ -15,7 +15,13 @@ quiz-example/        ──script──▶  assignment: description, settings,
   quiz.md ...
 ```
 
-## One script, two assignment types
+## One script, three assignment types
+
+- **jupyter** and **quiz:** authors write content (notebook, tests, quiz.md)
+  and the script generates the AutoTest JSON.
+- **json:** authors write the AutoTest JSON themselves, and the script
+  uploads it as-is. Use it for any block the other two don't cover (Code
+  Structure, Java, Flake8, …).
 
 `scripts/push_assignment.py` is the only command. `--example` or
 `--type` picks a builder:
@@ -26,6 +32,7 @@ quiz-example/        ──script──▶  assignment: description, settings,
 | `quiz_md.py` | Parses `quiz.md` into questions |
 | `build_jupyter.py` | Folder → AutoTest JSON + rubric rows + test submission (no network) |
 | `build_quiz.py` | Folder → AutoTest JSON + rubric rows; runs `solution.py` to get the expected IO output |
+| `build_json.py` | Hand-written `autotest.json` + `rubric.json` → checked, ids added, ready to upload |
 | `autotest.py` | Small JSON helpers and a consistency check (unique ids, every rubric row connected once) |
 | `cg_api.py` | Every network call: API v1 through the `codegrade` library, API v2 as JSON |
 | `capture_config.py` | Prints the AutoTest JSON of any assignment, handy when you build a block by hand first |

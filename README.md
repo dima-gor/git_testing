@@ -9,6 +9,7 @@ assignments to copy:
 |---|---|
 | `jupyter-example/` | A Jupyter Notebook assignment, graded by your pytest-style tests |
 | `quiz-example/` | A quiz: multiple choice questions plus a coding question with an output test and unit tests |
+| `json-example/` | A plain Python assignment whose AutoTest is written directly as CodeGrade JSON (output test + code structure test) |
 | `scripts/` | The script that pushes a folder to CodeGrade |
 | `docs/` | How it works, and how the CodeGrade APIs fit together |
 
@@ -71,13 +72,14 @@ export CG_PASSWORD='your-password'
 ```bash
 make quiz ARGS="--course 123"                  # push the quiz example into course 123
 make jupyter ARGS="--course 123 --publish"     # push the Jupyter example and publish it
+make json ARGS="--course 123"                  # push the hand-written JSON example
 make quiz ARGS="--dry-run"                     # only build the JSON in build/, nothing sent
 ```
 
 Without `make`:
 
 ```bash
-.venv/bin/python -m scripts.push_assignment                     # menu: 1) Jupyter 2) Quiz
+.venv/bin/python -m scripts.push_assignment                     # menu: 1) Jupyter 2) Quiz 3) JSON
 .venv/bin/python -m scripts.push_assignment --example quiz --course 123
 .venv/bin/python -m scripts.push_assignment --source my-week-3 --type jupyter --course 123
 ```
@@ -93,12 +95,12 @@ When it finishes, the script prints a link to the assignment.
 ### All options
 
 ```
---example jupyter|quiz              use one of the example folders
---source PATH --type jupyter|quiz   use your own folder
+--example jupyter|quiz|json         use one of the example folders
+--source PATH --type jupyter|quiz|json   use your own folder
 --course ID                         create a new assignment in this course
 --assignment ID                     update an existing assignment instead
 --name TEXT                         assignment name (default: the folder name)
---points N                          points per rubric row (default 10)
+--points N                          points per rubric row (default 10; json: max_points from rubric.json)
 --publish                           publish the snapshot (AutoTest goes live for students)
 --yes                               don't ask before replacing an existing AutoTest config
 --recreate                          delete the existing AutoTest config first and build it fresh
@@ -197,6 +199,58 @@ Quiz
     └── Connect Rubric "Coding question: unit tests" → Pytest (your test_solution.py)
 ```
 
+### JSON folder (write the AutoTest configuration yourself)
+
+Use this when you want full control: you write CodeGrade's AutoTest v2
+JSON directly, and the script uploads it as-is.
+
+```
+my-python-lab/
+  description.md      optional: assignment description (Markdown)
+  autotest.json       the AutoTest configuration
+  rubric.json         the rubric rows
+  solution/           optional: your solution files, uploaded as the test submission
+  template/           optional: starter files students get in the editor
+```
+
+`rubric.json`:
+
+```json
+[
+  { "header": "Output", "description": "Prints the right grade.", "max_points": 10 },
+  { "header": "Code structure", "description": "Defines letter_grade.", "max_points": 10 }
+]
+```
+
+`autotest.json` (shortened, see `json-example/autotest.json` for the full one):
+
+```json
+{
+  "setup": { "steps": [ { "installPython": { "version": "3.12" } } ] },
+  "test":  { "steps": [
+    { "connectRubric": { "rubricRowId": "__RUBRIC_ROW_ID:Output__", "children": [
+      { "ioTest": { "name": "Output", "script": "python3 grade.py", "children": [
+        { "simpleMatch": { "name": "Score 95 is an A", "inputText": "95\n", "outputText": "A\n",
+                           "caseSensitivity": "insensitive", "whitespacesPolicy": "ignore" } }
+      ] } }
+    ] } }
+  ] }
+}
+```
+
+- **Steps:** every step is `{ "<blockType>": { ...fields, "children": [...] } }`.
+  You don't need to write `id`s; the script gives every step a fresh one.
+- **Rubric connection:** connect a rubric row with
+  `"rubricRowId": "__RUBRIC_ROW_ID:<header>__"`. The header must match
+  `rubric.json` exactly. The script checks that every row is connected
+  exactly once before it uploads anything.
+- **Finding the JSON of a block:** build it once in the CodeGrade UI, then
+  run `make capture ARGS="--assignment <id>"` and copy what you need. The
+  blocks and their fields are listed in [docs/codegrade-api.md](docs/codegrade-api.md).
+- **Code structure tests** use [Semgrep](https://semgrep.dev/docs/writing-rules/overview)
+  rules. Check each rule against your solution before pushing:
+  `semgrep scan --config rule.yaml solution/grade.py`.
+
 ## Run it from GitHub Actions (optional)
 
 To update an assignment on every push, add the four `CG_*` values as
@@ -250,8 +304,19 @@ make docker-run ARGS="--example quiz --course 123"
 To see the JSON of any block you built by hand in CodeGrade (build the
 snapshot first), use `make capture ARGS="--assignment 456"`.
 
-## More
+## Documentation
 
-- [docs/how-it-works.md](docs/how-it-works.md): what the script does step by step, and how to extend it.
-- [docs/codegrade-api.md](docs/codegrade-api.md): CodeGrade API v1 and v2, which one is used for what, and links.
-- Run the offline tests with `make test`.
+| Document | What's in it |
+|---|---|
+| [docs/choosing-a-format.md](docs/choosing-a-format.md) | jupyter vs quiz vs json: what authors write, what the script generates, when to use which |
+| [docs/how-it-works.md](docs/how-it-works.md) | What the script does step by step, the modules, and how to extend it |
+| [docs/codegrade-api.md](docs/codegrade-api.md) | CodeGrade API v1 vs API v2, AutoTest v1 vs v2, which call is used for what, the main blocks and their fields |
+| [docs/using-the-api.md](docs/using-the-api.md) | Use the API yourself: log in, create an assignment, rubric, AutoTest JSON, snapshot, plus the pitfalls |
+
+Links:
+
+- Python library (API v1): https://python.api.codegrade.com/
+- API v2 reference: https://typescript.apiv2.codegrade.com/classes/Apiv2.html
+- CodeGrade help center: https://help.codegrade.com/
+
+Run the offline tests with `make test`.

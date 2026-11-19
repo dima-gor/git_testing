@@ -29,6 +29,15 @@ class QuizFiles:
     description: Path | None = None
 
 
+@dataclass
+class JsonFiles:
+    autotest: Path
+    rubric: Path
+    solution: list[Path]
+    template: list[Path]
+    description: Path | None = None
+
+
 def _raise(folder: Path, problems: list[str]) -> None:
     if problems:
         lines = "\n".join(f"  - {p}" for p in problems)
@@ -86,5 +95,26 @@ def find_quiz_files(folder: Path) -> QuizFiles:
         starter=starter if starter.is_file() else None,
         io_cases=folder / "io_cases.txt",
         test_file=folder / "test_solution.py",
+        description=_description(folder),
+    )
+
+
+def _files_in(folder: Path) -> list[Path]:
+    if not folder.is_dir():
+        return []
+    return sorted(p for p in folder.rglob("*") if p.is_file() and not p.name.startswith("."))
+
+
+def find_json_files(folder: Path) -> JsonFiles:
+    """autotest.json + rubric.json (required); solution/, template/, description.md (optional)."""
+    folder = Path(folder)
+    _check_folder(folder)
+    problems = [f"{name} not found" for name in ("autotest.json", "rubric.json") if not (folder / name).is_file()]
+    _raise(folder, problems)
+    return JsonFiles(
+        autotest=folder / "autotest.json",
+        rubric=folder / "rubric.json",
+        solution=_files_in(folder / "solution"),
+        template=_files_in(folder / "template"),
         description=_description(folder),
     )
