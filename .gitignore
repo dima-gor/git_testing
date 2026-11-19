@@ -1,0 +1,6 @@
+build/
+__pycache__/
+.venv/
+.superpowers/
+.DS_Store
+*.pyc
